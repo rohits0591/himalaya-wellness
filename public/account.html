@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Account — Himalaya Wellness</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="header-top">🌿 Himalaya Wellness — Member Portal</div>
+  <div class="header-main">
+    <a href="/" class="logo"><svg viewBox="0 0 36 36" fill="none"><path d="M18 3L33 30H3L18 3Z" fill="#4CAF50" opacity="0.9"/><circle cx="18" cy="24" r="4" fill="#FF6F00"/></svg> Himalaya Wellness</a>
+    <div class="header-actions">
+      <a href="/products" class="btn-icon">🛒 Shop</a>
+      <a href="/cart" class="btn-icon">🛒 Cart <span id="cart-count" style="background:var(--orange-main);color:#fff;padding:1px 7px;border-radius:10px;font-size:11px">0</span></a>
+    </div>
+  </div>
+</header>
+
+<div id="app"><div class="loading" style="text-align:center;padding:80px">Loading...</div></div>
+<footer><p>© 2024 Himalaya Wellness India</p></footer>
+
+<script src="/app.js"></script>
+<script>
+const params = new URLSearchParams(window.location.search);
+
+function renderLogin() {
+  document.getElementById('app').innerHTML = `
+    <div class="auth-container">
+      <div class="auth-card">
+        <div class="auth-logo">
+          <svg viewBox="0 0 60 60" fill="none" style="width:60px;height:60px"><path d="M30 5L55 50H5L30 5Z" fill="#004D40" opacity="0.9"/><circle cx="30" cy="40" r="7" fill="#FF6F00"/></svg>
+          <h2 style="color:var(--green-dark);margin-top:8px">Himalaya Wellness</h2>
+        </div>
+        <div class="auth-tabs">
+          <div class="auth-tab active" id="tab-login" onclick="switchTab('login')">Login</div>
+          <div class="auth-tab" id="tab-register" onclick="switchTab('register')">Register</div>
+        </div>
+        <div id="login-form">
+          <div class="form-group"><label>Mobile Number</label><input type="tel" id="login-phone" placeholder="+919999999999"></div>
+          <div class="form-group"><label>Password</label><input type="password" id="login-password" placeholder="Your password"></div>
+          <button class="btn btn-green btn-full" onclick="doLogin()" style="margin-bottom:12px">Login</button>
+          <p style="text-align:center;font-size:13px;color:var(--text-light)">New user? <a href="#" onclick="switchTab('register')">Create account</a></p>
+        </div>
+        <div id="register-form" style="display:none">
+          <div class="form-group"><label>Full Name</label><input type="text" id="reg-name" placeholder="Your full name"></div>
+          <div class="form-group"><label>Mobile Number (with country code)</label><input type="tel" id="reg-phone" placeholder="+919999999999"></div>
+          <div class="form-group"><label>Email (optional)</label><input type="email" id="reg-email" placeholder="email@example.com"></div>
+          <div class="form-group"><label>Password</label><input type="password" id="reg-password" placeholder="Create a password"></div>
+          <button class="btn btn-green btn-full" onclick="doRegister()">Create Account</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function switchTab(tab) {
+  document.getElementById('tab-login').classList.toggle('active', tab==='login');
+  document.getElementById('tab-register').classList.toggle('active', tab==='register');
+  document.getElementById('login-form').style.display = tab==='login' ? 'block' : 'none';
+  document.getElementById('register-form').style.display = tab==='register' ? 'block' : 'none';
+}
+
+async function doLogin() {
+  const phone = document.getElementById('login-phone').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!phone || !password) { toast('Please fill all fields', 'error'); return; }
+  try {
+    const data = await apiFetch('/users/login', { method: 'POST', body: JSON.stringify({ phone, password }) });
+    Session.set({ ...data.user, password });
+    toast('Welcome back, ' + data.user.name.split(' ')[0] + '!');
+    setTimeout(() => renderDashboard(data.user), 800);
+  } catch(err) { toast(err.message, 'error'); }
+}
+
+async function doRegister() {
+  const name = document.getElementById('reg-name').value.trim();
+  const phone = document.getElementById('reg-phone').value.trim();
+  const email = document.getElementById('reg-email').value.trim();
+  const password = document.getElementById('reg-password').value;
+  if (!name || !phone || !password) { toast('Name, phone and password required', 'error'); return; }
+  try {
+    const data = await apiFetch('/users/register', { method: 'POST', body: JSON.stringify({ name, phone, email, password }) });
+    Session.set({ ...data.user, password });
+    toast('Account created! Welcome, ' + name.split(' ')[0] + '!');
+    setTimeout(() => renderDashboard(data.user), 800);
+  } catch(err) { toast(err.message, 'error'); }
+}
+
+function tierColor(t) { return t==='platinum'?'#6A1B9A':t==='gold'?'#F57F17':'#607D8B'; }
+function tierBg(t)    { return t==='platinum'?'#EDE7F6':t==='gold'?'#FFF8E1':'#ECEFF1'; }
+function tierIcon(t)  { return t==='platinum'?'💎':t==='gold'?'🥇':'🥈'; }
+
+function renderDashboard(user) {
+  const discount = {platinum:15,gold:10,silver:5}[user.membershipTier] || 0;
+  document.getElementById('app').innerHTML = `
+    <div class="container" style="padding-top:40px;padding-bottom:40px">
+      <div style="display:grid;grid-template-columns:300px 1fr;gap:24px">
+        <div>
+          <div style="background:#fff;border-radius:16px;padding:28px;box-shadow:var(--shadow);text-align:center">
+            <div style="width:72px;height:72px;border-radius:50%;background:var(--green-light);display:flex;align-items:center;justify-content:center;font-size:2rem;margin:0 auto 12px">${user.name[0]}</div>
+            <h3 style="margin-bottom:4px">${user.name}</h3>
+            <p style="color:var(--text-light);font-size:13px;margin-bottom:12px">${user.phone}</p>
+            <div style="display:inline-block;background:${tierBg(user.membershipTier)};color:${tierColor(user.membershipTier)};padding:4px 14px;border-radius:20px;font-weight:700;font-size:13px">${tierIcon(user.membershipTier)} ${(user.membershipTier||'silver').toUpperCase()} MEMBER</div>
+            <div style="margin-top:12px;font-size:13px;color:var(--text-light)">Customer ID: <strong>${user.customerId}</strong></div>
+            <div style="margin-top:4px;font-size:13px;color:var(--green-main);font-weight:600">You save ${discount}% on every purchase!</div>
+            <button class="btn btn-outline btn-sm" style="margin-top:16px;width:100%" onclick="logout()">Logout</button>
+          </div>
+          <div style="background:#fff;border-radius:16px;padding:20px;box-shadow:var(--shadow);margin-top:16px">
+            <h4 style="margin-bottom:12px;font-family:'DM Sans',sans-serif;font-weight:600">Quick Links</h4>
+            <a href="/products" class="btn btn-green btn-sm btn-full" style="margin-bottom:8px">🛒 Shop Products</a>
+            <a href="/cart" class="btn btn-outline btn-sm btn-full">🛒 View Cart</a>
+          </div>
+        </div>
+        <div>
+          <div style="background:#fff;border-radius:16px;padding:28px;box-shadow:var(--shadow);margin-bottom:20px">
+            <h3 style="margin-bottom:16px;color:var(--green-dark)">Membership Plans</h3>
+            <div class="membership-grid" style="max-width:100%">
+              ${['silver','gold','platinum'].map(tier => {
+                const prices = {silver:499,gold:999,platinum:1999};
+                const discounts = {silver:5,gold:10,platinum:15};
+                const isCurrent = user.membershipTier === tier;
+                return `<div class="membership-card ${tier}" style="${isCurrent?'border-width:3px':''}">
+                  <div class="tier-icon">${tierIcon(tier)}</div>
+                  <div class="tier-name">${tier.toUpperCase()}</div>
+                  <div class="tier-discount">${discounts[tier]}% OFF</div>
+                  <div class="tier-price">₹${prices[tier]}/year</div>
+                  ${isCurrent
+                    ? '<button class="btn btn-sm btn-full" style="background:var(--green-light);color:var(--green-dark);cursor:default">✓ Current Plan</button>'
+                    : '<button class="btn btn-outline btn-sm btn-full" onclick="purchaseMembership(\''+tier+'\','+prices[tier]+')">Upgrade to '+tier.charAt(0).toUpperCase()+tier.slice(1)+'</button>'}
+                </div>`;
+              }).join('')}
+            </div>
+          </div>
+          <div style="background:#fff;border-radius:16px;padding:28px;box-shadow:var(--shadow)" id="orders-section">
+            <h3 style="margin-bottom:16px;color:var(--green-dark)">Order History</h3>
+            <div id="orders-list"><div class="loading">Loading orders...</div></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  loadOrders(user.phone);
+  const tier = params.get('tier');
+  if (params.get('tab') === 'membership' && tier) {
+    const prices = {silver:499,gold:999,platinum:1999};
+    setTimeout(() => purchaseMembership(tier, prices[tier]), 500);
+  }
+}
+
+async function purchaseMembership(tier, price) {
+  if (!confirm('Upgrade to ' + tier.toUpperCase() + ' membership for ₹' + price + '/year?')) return;
+  try {
+    await apiFetch('/users/membership/purchase', { method: 'POST', body: JSON.stringify({ tier }) });
+    const user = Session.get();
+    user.membershipTier = tier;
+    Session.set(user);
+    toast(tier.toUpperCase() + ' membership activated!');
+    setTimeout(() => renderDashboard({ ...user, membershipTier: tier }), 1000);
+  } catch(err) { toast(err.message, 'error'); }
+}
+
+async function loadOrders(phone) {
+  try {
+    const data = await apiFetch('/orders/' + phone);
+    const el = document.getElementById('orders-list');
+    if (!data.orders.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div><p>No orders yet. <a href="/products">Start shopping!</a></p></div>'; return; }
+    el.innerHTML = data.orders.map(order => `
+      <div style="border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+          <strong style="color:var(--green-dark)">${order.orderId}</strong>
+          <span style="background:var(--green-light);color:var(--green-main);padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">${order.status}</span>
+        </div>
+        <div style="font-size:13px;color:var(--text-light)">
+          ${order.type==='membership' ? 'Membership: '+order.tier?.toUpperCase() : (order.items?.length||0)+' item(s)'} ·
+          Total: <strong style="color:var(--text-dark)">₹${order.total||order.amount}</strong>
+          ${order.estimatedDelivery ? ' · Delivery: '+order.estimatedDelivery : ''}
+        </div>
+      </div>`).join('');
+  } catch(e) { document.getElementById('orders-list').innerHTML = '<p class="loading">Unable to load orders</p>'; }
+}
+
+const user = Session.get();
+if (user) { renderDashboard(user); if (params.get('tab') === 'register') {} }
+else { renderLogin(); if (params.get('tab') === 'register') setTimeout(() => switchTab('register'), 100); }
+</script>
+</body>
+</html>

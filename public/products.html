@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Products — Himalaya Wellness</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="header-top">🌿 Free delivery on orders above ₹499 | Trusted herbal wellness since 1930</div>
+  <div class="header-main">
+    <a href="/" class="logo">
+      <svg viewBox="0 0 36 36" fill="none"><path d="M18 3L33 30H3L18 3Z" fill="#4CAF50" opacity="0.9"/><circle cx="18" cy="24" r="4" fill="#FF6F00"/></svg>
+      Himalaya Wellness
+    </a>
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="Search products...">
+      <button onclick="doSearch()">🔍</button>
+    </div>
+    <div class="header-actions">
+      <a href="/cart" class="btn-icon">🛒 Cart <span id="cart-count" style="background:var(--orange-main);color:#fff;padding:1px 7px;border-radius:10px;font-size:11px">0</span></a>
+      <a href="/account" class="btn-icon" id="login-btn">👤 Login</a>
+      <div class="btn-icon" id="user-info" style="display:none">👤 <span id="user-name"></span><span onclick="logout()" style="cursor:pointer;opacity:0.7;font-size:11px;margin-left:6px">| Logout</span></div>
+    </div>
+  </div>
+  <nav class="site-nav"><div class="nav-inner">
+    <a href="/" class="nav-link">Home</a>
+    <a href="/products" class="nav-link active">All Products</a>
+    <a href="/cart" class="nav-link">Cart</a>
+    <a href="/account" class="nav-link">Account</a>
+  </div></nav>
+</header>
+
+<div class="container">
+  <div class="page-title">Products</div>
+  <div class="page-breadcrumb"><a href="/">Home</a> › Products</div>
+</div>
+
+<div class="filter-bar">
+  <button class="filter-chip active" onclick="filterBy('')" data-cat="">All</button>
+  <button class="filter-chip" onclick="filterBy('Face Care')" data-cat="Face Care">Face Care</button>
+  <button class="filter-chip" onclick="filterBy('Hair Care')" data-cat="Hair Care">Hair Care</button>
+  <button class="filter-chip" onclick="filterBy('Body Care')" data-cat="Body Care">Body Care</button>
+  <button class="filter-chip" onclick="filterBy('Oral Care')" data-cat="Oral Care">Oral Care</button>
+  <button class="filter-chip" onclick="filterBy('General Health')" data-cat="General Health">General Health</button>
+  <button class="filter-chip" onclick="filterBy('Baby Care')" data-cat="Baby Care">Baby Care</button>
+  <button class="filter-chip" onclick="filterBy('Men\'s Care')" data-cat="Men's Care">Men's Care</button>
+  <button class="filter-chip" onclick="filterBy('Women\'s Health')" data-cat="Women's Health">Women's Health</button>
+</div>
+
+<div class="products-grid" id="products-grid" style="margin-top:20px">
+  <div class="loading" style="grid-column:1/-1">Loading products...</div>
+</div>
+
+<footer><p>© 2024 Himalaya Wellness India. All rights reserved.</p></footer>
+
+<script src="/app.js"></script>
+<script>
+let allProducts = [];
+
+function doSearch() { const q = document.getElementById('search-input').value.trim(); if (q) window.location.href = '/products?q=' + encodeURIComponent(q); }
+document.getElementById('search-input').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+function filterBy(cat) {
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', c.dataset.cat === cat));
+  renderProducts(cat ? allProducts.filter(p => p.category === cat) : allProducts);
+}
+
+function renderProducts(products) {
+  const grid = document.getElementById('products-grid');
+  if (!products.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">🔍</div><p>No products found</p></div>'; return; }
+  grid.innerHTML = products.map(p => `
+    <div class="product-card">
+      <img src="${p.image}" alt="${p.name}" loading="lazy">
+      <div class="product-info">
+        <div class="product-category">${p.category}</div>
+        <div class="product-name">${p.name}</div>
+        <div class="product-price">₹${p.price}</div>
+        <div style="font-size:12px;color:var(--text-light);margin-bottom:8px">${(p.description||'').substring(0,60)}...</div>
+        <button class="btn btn-green btn-sm btn-full" onclick="addToCart('${p.itemId}','${p.name.replace(/'/g,"\\'")}')">Add to Cart</button>
+      </div>
+    </div>`).join('');
+}
+
+async function loadProducts() {
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get('q'), cat = params.get('cat') || '';
+  try {
+    let data;
+    if (q) {
+      data = await apiFetch('/inventory/search?q=' + encodeURIComponent(q));
+      allProducts = data.products || (data.itemId ? [data] : []);
+      document.querySelector('.page-title').textContent = 'Results for "' + q + '"';
+    } else {
+      data = await apiFetch('/inventory');
+      allProducts = data.products;
+    }
+    if (cat) {
+      document.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', c.dataset.cat === cat));
+      renderProducts(allProducts.filter(p => p.category === cat));
+    } else { renderProducts(allProducts); }
+  } catch(e) { document.getElementById('products-grid').innerHTML = '<p class="loading">Unable to load products</p>'; }
+}
+loadProducts();
+</script>
+</body>
+</html>

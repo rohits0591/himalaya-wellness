@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cart — Himalaya Wellness</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="header-top">🌿 Free delivery on orders above ₹499</div>
+  <div class="header-main">
+    <a href="/" class="logo"><svg viewBox="0 0 36 36" fill="none"><path d="M18 3L33 30H3L18 3Z" fill="#4CAF50" opacity="0.9"/><circle cx="18" cy="24" r="4" fill="#FF6F00"/></svg> Himalaya Wellness</a>
+    <div class="header-actions">
+      <a href="/products" class="btn-icon">← Continue Shopping</a>
+      <a href="/account" class="btn-icon" id="login-btn">👤 Login</a>
+      <div class="btn-icon" id="user-info" style="display:none">👤 <span id="user-name"></span><span onclick="logout()" style="cursor:pointer;opacity:0.7;font-size:11px;margin-left:6px">| Logout</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="container"><div class="page-title">My Cart</div><div class="page-breadcrumb"><a href="/">Home</a> › Cart</div></div>
+<div class="cart-container" id="cart-main"><div class="loading" style="grid-column:1/-1;text-align:center;padding:60px">Loading cart...</div></div>
+<footer><p>© 2024 Himalaya Wellness India</p></footer>
+
+<script src="/app.js"></script>
+<script>
+let cartData = null;
+let paymentMethod = 'card';
+
+async function loadCart() {
+  const user = Session.get();
+  const container = document.getElementById('cart-main');
+  if (!user) { container.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">🛒</div><h3>Please login to view your cart</h3><br><a href="/account" class="btn btn-green">Login</a></div>'; return; }
+  try {
+    cartData = await apiFetch('/cart/' + user.phone);
+    renderCart(cartData);
+  } catch(e) { container.innerHTML = '<div class="loading">Unable to load cart</div>'; }
+}
+
+function renderCart(data) {
+  const container = document.getElementById('cart-main');
+  if (!data.items.length) {
+    container.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">🛒</div><h3>Your cart is empty</h3><p>Add some products to get started</p><br><a href="/products" class="btn btn-green">Shop Now</a></div>';
+    return;
+  }
+  const tierBadge = { silver:'badge-silver', gold:'badge-gold', platinum:'badge-platinum' };
+  const total = (data.subtotal * 1.18).toFixed(2);
+  container.innerHTML = `
+    <div class="cart-items">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 style="font-family:'DM Sans',sans-serif;font-weight:600">Cart (${data.itemCount} items)</h3>
+        <span class="badge-tier ${tierBadge[data.membershipTier]||'badge-silver'}">${(data.membershipTier||'silver').toUpperCase()} — ${data.discountPercent}% OFF</span>
+      </div>
+      ${data.items.map(item => `
+        <div class="cart-item">
+          <img src="${item.image}" alt="${item.name}">
+          <div class="cart-item-info">
+            <div class="cart-item-name">${item.name}</div>
+            <div><span class="cart-item-price">₹${item.pricing.discounted}</span>${data.discountPercent > 0 ? '<span class="cart-item-original">₹'+item.pricing.original+'</span>' : ''}</div>
+            <div class="qty-control">
+              <button class="qty-btn" onclick="updateQty('${item.itemId}',${item.quantity-1})">−</button>
+              <span style="min-width:24px;text-align:center;font-weight:600">${item.quantity}</span>
+              <button class="qty-btn" onclick="updateQty('${item.itemId}',${item.quantity+1})">+</button>
+              <button class="qty-btn" style="margin-left:8px;color:#C62828" onclick="removeItem('${item.itemId}')">🗑</button>
+            </div>
+          </div>
+          <div style="font-weight:700;color:var(--green-dark)">₹${(item.pricing.discounted * item.quantity).toFixed(2)}</div>
+        </div>`).join('')}
+    </div>
+    <div class="order-summary">
+      <h3 style="font-family:'DM Sans',sans-serif;font-weight:700;margin-bottom:16px">Order Summary</h3>
+      <div class="summary-row"><span>Subtotal (${data.itemCount} items)</span><span>₹${data.subtotal.toFixed(2)}</span></div>
+      ${data.discountPercent > 0 ? '<div class="summary-row" style="color:var(--green-main)"><span>Member Discount <span class="discount-badge">'+data.discountPercent+'%</span></span><span>Applied ✓</span></div>' : ''}
+      <div class="summary-row"><span>GST (18%)</span><span>₹${(data.subtotal * 0.18).toFixed(2)}</span></div>
+      <div class="summary-row"><span>Delivery</span><span style="color:var(--green-main)">Free</span></div>
+      <div class="summary-row total"><span>Total</span><span>₹${total}</span></div>
+      <div style="margin-top:20px">
+        <div class="form-group"><label>Delivery Address</label><input type="text" id="delivery-address" placeholder="Enter your full address"></div>
+        <div class="form-group">
+          <label>Payment Method</label>
+          <div class="payment-options">
+            <div class="pay-opt active" onclick="selectPayment('card',this)">💳 Card</div>
+            <div class="pay-opt" onclick="selectPayment('upi',this)">📱 UPI</div>
+            <div class="pay-opt" onclick="selectPayment('cod',this)">💵 COD</div>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="checkout()" id="checkout-btn">Place Order — ₹${total}</button>
+      </div>
+    </div>`;
+}
+
+function selectPayment(method, el) {
+  paymentMethod = method;
+  document.querySelectorAll('.pay-opt').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+}
+
+async function updateQty(itemId, qty) {
+  const user = Session.get();
+  try {
+    if (qty <= 0) { await removeItem(itemId); return; }
+    await apiFetch('/cart/' + user.phone + '/update', { method: 'PATCH', body: JSON.stringify({ itemId, quantity: qty }) });
+    cartData = await apiFetch('/cart/' + user.phone);
+    renderCart(cartData); updateCartBadge();
+  } catch(err) { toast(err.message, 'error'); }
+}
+
+async function removeItem(itemId) {
+  const user = Session.get();
+  try {
+    await apiFetch('/cart/' + user.phone + '/remove/' + itemId, { method: 'DELETE' });
+    cartData = await apiFetch('/cart/' + user.phone);
+    renderCart(cartData); updateCartBadge(); toast('Item removed');
+  } catch(err) { toast(err.message, 'error'); }
+}
+
+async function checkout() {
+  const user = Session.get();
+  if (!user) { toast('Please login first', 'error'); return; }
+  const address = document.getElementById('delivery-address').value.trim();
+  if (!address) { toast('Please enter delivery address', 'error'); return; }
+  const btn = document.getElementById('checkout-btn');
+  btn.textContent = 'Processing...'; btn.disabled = true;
+  try {
+    const result = await apiFetch('/orders/checkout', { method: 'POST', body: JSON.stringify({ address, paymentMethod }) });
+    document.getElementById('cart-main').innerHTML = `
+      <div style="grid-column:1/-1;background:#fff;border-radius:16px;padding:60px 40px;box-shadow:var(--shadow);text-align:center">
+        <div style="font-size:4rem;margin-bottom:16px">✅</div>
+        <h2 style="color:var(--green-dark);margin-bottom:8px">Order Placed Successfully!</h2>
+        <p style="color:var(--text-light);margin-bottom:24px">Order ID: <strong>${result.orderId}</strong></p>
+        <div style="background:var(--green-light);border-radius:12px;padding:20px;text-align:left;max-width:400px;margin:0 auto 24px">
+          <div style="display:flex;justify-content:space-between;padding:6px 0"><span>Items</span><span>${result.summary.itemCount}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0"><span>Discount</span><span style="color:var(--green-main)">${result.summary.discountApplied}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0"><span>GST</span><span>₹${result.summary.tax}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0;font-weight:700;font-size:1.1rem;border-top:1px solid rgba(0,105,92,0.2);margin-top:6px"><span>Total Paid</span><span>₹${result.summary.totalPaid}</span></div>
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.08);font-size:13px">📦 Estimated Delivery: <strong>${result.summary.estimatedDelivery}</strong></div>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+          <a href="/products" class="btn btn-green">Continue Shopping</a>
+          <a href="/account" class="btn btn-outline">View Orders</a>
+        </div>
+      </div>`;
+    updateCartBadge();
+  } catch(err) {
+    toast(err.message, 'error');
+    btn.textContent = 'Place Order — ₹' + (cartData.subtotal * 1.18).toFixed(2);
+    btn.disabled = false;
+  }
+}
+
+loadCart();
+</script>
+</body>
+</html>

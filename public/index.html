@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Himalaya Wellness — Official Store</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="header-top">🌿 Free delivery on orders above ₹499 | Trusted herbal wellness since 1930</div>
+  <div class="header-main">
+    <a href="/" class="logo">
+      <svg viewBox="0 0 36 36" fill="none"><path d="M18 3L33 30H3L18 3Z" fill="#4CAF50" opacity="0.9"/><path d="M18 10L28 28H8L18 10Z" fill="#fff" opacity="0.25"/><circle cx="18" cy="24" r="4" fill="#FF6F00"/></svg>
+      Himalaya Wellness
+    </a>
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="Search products...">
+      <button onclick="doSearch()">🔍</button>
+    </div>
+    <div class="header-actions">
+      <a href="/cart" class="btn-icon">🛒 Cart <span id="cart-count" style="background:var(--orange-main);color:#fff;padding:1px 7px;border-radius:10px;font-size:11px">0</span></a>
+      <a href="/account" class="btn-icon" id="login-btn">👤 Login</a>
+      <div class="btn-icon" id="user-info" style="display:none">👤 <span id="user-name"></span><span onclick="logout()" style="cursor:pointer;opacity:0.7;font-size:11px;margin-left:6px">| Logout</span></div>
+    </div>
+  </div>
+  <nav class="site-nav"><div class="nav-inner">
+    <a href="/" class="nav-link active">Home</a>
+    <a href="/products" class="nav-link">All Products</a>
+    <a href="/products?cat=Face+Care" class="nav-link">Face Care</a>
+    <a href="/products?cat=Hair+Care" class="nav-link">Hair Care</a>
+    <a href="/products?cat=General+Health" class="nav-link">Health</a>
+    <a href="/products?cat=Baby+Care" class="nav-link">Baby Care</a>
+    <a href="/account" class="nav-link">Membership</a>
+  </div></nav>
+</header>
+
+<section class="hero">
+  <div class="hero-content">
+    <div class="hero-badge">✨ Since 1930 — Trusted Herbal Wellness</div>
+    <h1>Nature's Best,<br>Delivered to You</h1>
+    <p>Shop authentic Himalaya herbal products with exclusive member discounts up to 15%</p>
+    <div class="hero-actions">
+      <a href="/products" class="btn btn-primary">Shop Now</a>
+      <a href="/account" class="btn btn-secondary">Join as Member</a>
+    </div>
+  </div>
+</section>
+
+<section class="membership-section">
+  <h2 class="section-title">Membership Benefits</h2>
+  <p class="section-sub">Join our wellness community and save more on every purchase</p>
+  <div class="membership-grid">
+    <div class="membership-card silver" onclick="joinMembership('silver')">
+      <div class="tier-icon">🥈</div>
+      <div class="tier-name">Silver</div>
+      <div class="tier-discount">5% OFF</div>
+      <div class="tier-price">₹499/year</div>
+      <ul class="tier-perks"><li>5% discount on all products</li><li>Free delivery above ₹399</li><li>Early access to launches</li></ul>
+      <button class="btn btn-outline btn-sm">Get Silver</button>
+    </div>
+    <div class="membership-card gold" onclick="joinMembership('gold')">
+      <div class="tier-icon">🥇</div>
+      <div class="tier-name">Gold</div>
+      <div class="tier-discount">10% OFF</div>
+      <div class="tier-price">₹999/year</div>
+      <ul class="tier-perks"><li>10% discount on all products</li><li>Free delivery on all orders</li><li>Priority customer support</li><li>Exclusive member offers</li></ul>
+      <button class="btn btn-outline btn-sm">Get Gold</button>
+    </div>
+    <div class="membership-card platinum" onclick="joinMembership('platinum')">
+      <div class="tier-icon">💎</div>
+      <div class="tier-name">Platinum</div>
+      <div class="tier-discount">15% OFF</div>
+      <div class="tier-price">₹1999/year</div>
+      <ul class="tier-perks"><li>15% discount on all products</li><li>Free express delivery</li><li>Dedicated wellness advisor</li><li>Birthday & anniversary offers</li><li>Invite-only events</li></ul>
+      <button class="btn btn-outline btn-sm">Get Platinum</button>
+    </div>
+  </div>
+</section>
+
+<section class="products-section" style="background:#F8F9FA">
+  <div class="container">
+    <h2 class="section-title">Featured Products</h2>
+    <p class="section-sub">Best-selling herbal wellness products</p>
+  </div>
+  <div class="products-grid" id="featured-products">
+    <div class="loading" style="grid-column:1/-1">Loading products...</div>
+  </div>
+</section>
+
+<footer>
+  <p>© 2024 Himalaya Wellness India. All rights reserved.</p>
+  <p style="margin-top:8px"><a href="/products">Products</a> · <a href="/account">My Account</a> · <a href="/cart">Cart</a></p>
+</footer>
+
+<script src="/app.js"></script>
+<script>
+function doSearch() { const q = document.getElementById('search-input').value.trim(); if (q) window.location.href = '/products?q=' + encodeURIComponent(q); }
+document.getElementById('search-input').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+function joinMembership(tier) {
+  const user = Session.get();
+  if (!user) { toast('Please login to purchase membership', 'error'); setTimeout(() => window.location.href = '/account', 1200); return; }
+  window.location.href = '/account?tab=membership&tier=' + tier;
+}
+
+async function loadFeatured() {
+  try {
+    const data = await apiFetch('/inventory');
+    const products = data.products.slice(0, 8);
+    document.getElementById('featured-products').innerHTML = products.map(p => `
+      <div class="product-card">
+        <img src="${p.image}" alt="${p.name}" loading="lazy">
+        <div class="product-info">
+          <div class="product-category">${p.category}</div>
+          <div class="product-name">${p.name}</div>
+          <div class="product-price">₹${p.price}</div>
+          <button class="btn btn-green btn-sm btn-full" onclick="addToCart('${p.itemId}','${p.name.replace(/'/g,"\\'")}')">Add to Cart</button>
+        </div>
+      </div>`).join('');
+  } catch(e) { document.getElementById('featured-products').innerHTML = '<p class="loading">Unable to load products</p>'; }
+}
+loadFeatured();
+</script>
+</body>
+</html>
