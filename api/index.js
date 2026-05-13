@@ -5,22 +5,31 @@ const admin = require('firebase-admin');
 const axios = require('axios');
 const path = require('path');
 
-// ─── Firebase Init (handles all Vercel key formats) ────────────
+// ─── Firebase Init ─────────────────────────────────────────────
 if (!admin.apps.length) {
-  let privateKey = process.env.FIREBASE_PRIVATE_KEY || '';
-  
-  // Step 1: Remove surrounding double quotes (Vercel adds these)
-  privateKey = privateKey.replace(/^\"/, '').replace(/\"$/, '');
-  
-  // Step 2: Convert literal \n text to real newlines
-  privateKey = privateKey.replace(/\\n/g, '\n');
-  
-  // Step 3: Verify fix worked
-  if (!privateKey.includes('\n')) {
-    console.error('WARNING: Private key still has no newlines after cleanup');
-  } else {
-    console.log('Private key processed successfully, length:', privateKey.length);
+  let rawKey = process.env.FIREBASE_PRIVATE_KEY || '';
+
+  // Debug: log exactly what we got
+  console.log('Raw key first 40 chars (charCodes):',
+    [...rawKey.substring(0, 40)].map(c => c.charCodeAt(0)).join(',')
+  );
+
+  // Universal fix: strip ALL quotes and convert \n regardless of format
+  // charCode 34 = double quote, 39 = single quote
+  let cleanKey = '';
+  for (let i = 0; i < rawKey.length; i++) {
+    const ch = rawKey[i];
+    const code = rawKey.charCodeAt(i);
+    // Skip leading/trailing quote characters
+    if ((i === 0 || i === rawKey.length - 1) && (code === 34 || code === 39)) continue;
+    cleanKey += ch;
   }
+
+  // Now replace literal backslash-n with real newline
+  cleanKey = cleanKey.split('\\n').join('\n');
+
+  console.log('Clean key first 40 chars:', cleanKey.substring(0, 40));
+  console.log('Has real newlines:', cleanKey.includes('\n'));
 
   try {
     admin.initializeApp({
@@ -28,7 +37,7 @@ if (!admin.apps.length) {
         type: 'service_account',
         project_id: process.env.FIREBASE_PROJECT_ID,
         private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-        private_key: privateKey,
+        private_key: cleanKey,
         client_email: process.env.FIREBASE_CLIENT_EMAIL,
         client_id: process.env.FIREBASE_CLIENT_ID,
         auth_uri: 'https://accounts.google.com/o/oauth2/auth',
@@ -36,9 +45,9 @@ if (!admin.apps.length) {
         client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL,
       }),
     });
-    console.log('Firebase initialized successfully');
+    console.log('✅ Firebase initialized');
   } catch (err) {
-    console.error('Firebase init error:', err.message);
+    console.error('❌ Firebase init error:', err.message);
   }
 }
 
@@ -298,16 +307,19 @@ app.get('/api/orders/:phone', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── Debug endpoint to check env vars ─────────────────────────
+// ─── Debug endpoint ────────────────────────────────────────────
 app.get('/api/debug', (req, res) => {
-  const key = process.env.FIREBASE_PRIVATE_KEY || '';
+  const raw = process.env.FIREBASE_PRIVATE_KEY || '';
+  let cleaned = raw;
+  if (cleaned.charCodeAt(0) === 34) cleaned = cleaned.substring(1);
+  if (cleaned.charCodeAt(cleaned.length - 1) === 34) cleaned = cleaned.substring(0, cleaned.length - 1);
+  cleaned = cleaned.split('\\n').join('\n');
   res.json({
     projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    keyLength: key.length,
-    keyStart: key.substring(0, 30),
-    hasNewlines: key.includes('\n'),
-    hasLiteralBackslashN: key.includes('\\n'),
+    rawKeyLength: raw.length,
+    rawKeyStart: raw.substring(0, 40),
+    cleanedKeyStart: cleaned.substring(0, 40),
+    hasNewlinesAfterClean: cleaned.includes('\n'),
     firebaseApps: admin.apps.length,
   });
 });
