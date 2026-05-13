@@ -9,27 +9,17 @@ const path = require('path');
 if (!admin.apps.length) {
   let rawKey = process.env.FIREBASE_PRIVATE_KEY || '';
 
-  // Debug: log exactly what we got
-  console.log('Raw key first 40 chars (charCodes):',
-    [...rawKey.substring(0, 40)].map(c => c.charCodeAt(0)).join(',')
-  );
+  // Strip surrounding quotes character by character
+  if (rawKey.charCodeAt(0) === 34) rawKey = rawKey.substring(1);
+  if (rawKey.charCodeAt(rawKey.length - 1) === 34) rawKey = rawKey.substring(0, rawKey.length - 1);
 
-  // Universal fix: strip ALL quotes and convert \n regardless of format
-  // charCode 34 = double quote, 39 = single quote
-  let cleanKey = '';
-  for (let i = 0; i < rawKey.length; i++) {
-    const ch = rawKey[i];
-    const code = rawKey.charCodeAt(i);
-    // Skip leading/trailing quote characters
-    if ((i === 0 || i === rawKey.length - 1) && (code === 34 || code === 39)) continue;
-    cleanKey += ch;
-  }
+  // Convert literal \n to real newlines
+  const cleanKey = rawKey.split('\\n').join('\n');
 
-  // Now replace literal backslash-n with real newline
-  cleanKey = cleanKey.split('\\n').join('\n');
-
-  console.log('Clean key first 40 chars:', cleanKey.substring(0, 40));
-  console.log('Has real newlines:', cleanKey.includes('\n'));
+  console.log('Key starts with:', cleanKey.substring(0, 27));
+  console.log('Key has newlines:', cleanKey.includes('\n'));
+  console.log('Project ID:', process.env.FIREBASE_PROJECT_ID);
+  console.log('Client Email:', process.env.FIREBASE_CLIENT_EMAIL);
 
   try {
     admin.initializeApp({
@@ -45,13 +35,19 @@ if (!admin.apps.length) {
         client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL,
       }),
     });
-    console.log('✅ Firebase initialized');
+    console.log('Firebase initialized OK');
   } catch (err) {
-    console.error('❌ Firebase init error:', err.message);
+    console.error('Firebase init FAILED:', err.message);
   }
 }
 
 const db = admin.firestore();
+
+// ─── Test Firestore connection on startup ──────────────────────
+db.collection('_health').limit(1).get()
+  .then(() => console.log('Firestore connection OK'))
+  .catch(err => console.error('Firestore connection FAILED:', err.code, err.message));
+
 const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json());
@@ -70,7 +66,6 @@ function estimateDelivery() {
   return date.toDateString();
 }
 
-// ─── Auth Middleware ────────────────────────────────────────────
 async function authMiddleware(req, res, next) {
   const { phone, password } = req.headers;
   if (!phone || !password) return res.status(401).json({ error: 'Phone and password required in headers' });
@@ -79,8 +74,43 @@ async function authMiddleware(req, res, next) {
     if (snap.empty) return res.status(401).json({ error: 'Invalid credentials' });
     req.user = snap.docs[0].data();
     next();
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 }
+
+// ═══════════════════════════════════════════════
+// DEBUG & HEALTH
+// ═══════════════════════════════════════════════
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', service: 'Himalaya Wellness API', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/debug', async (req, res) => {
+  const raw = process.env.FIREBASE_PRIVATE_KEY || '';
+  let cleaned = raw;
+  if (cleaned.charCodeAt(0) === 34) cleaned = cleaned.substring(1);
+  if (cleaned.charCodeAt(cleaned.length - 1) === 34) cleaned = cleaned.substring(0, cleaned.length - 1);
+  cleaned = cleaned.split('\\n').join('\n');
+
+  // Try a real Firestore query
+  let firestoreTest = 'not tested';
+  try {
+    await db.collection('_health').limit(1).get();
+    firestoreTest = 'SUCCESS';
+  } catch (err) {
+    firestoreTest = `FAILED: ${err.code} — ${err.message}`;
+  }
+
+  res.json({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    rawKeyLength: raw.length,
+    cleanedKeyStart: cleaned.substring(0, 40),
+    hasNewlines: cleaned.includes('\n'),
+    firebaseApps: admin.apps.length,
+    firestoreTest,
+  });
+});
 
 // ═══════════════════════════════════════════════
 // USER ENDPOINTS
@@ -98,7 +128,7 @@ app.post('/api/users/register', async (req, res) => {
     await db.collection('users').doc(phone).set(user);
     const { password: _p, ...safeUser } = user;
     res.status(201).json({ message: 'Account created successfully', user: safeUser });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.post('/api/users/login', async (req, res) => {
@@ -109,7 +139,7 @@ app.post('/api/users/login', async (req, res) => {
     const user = snap.docs[0].data();
     const { password: _p, ...safeUser } = user;
     res.json({ message: 'Login successful', user: safeUser });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.get('/api/users', async (req, res) => {
@@ -117,7 +147,7 @@ app.get('/api/users', async (req, res) => {
     const snap = await db.collection('users').get();
     const users = snap.docs.map(d => { const { password: _p, ...u } = d.data(); return u; });
     res.json({ count: users.length, users });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.get('/api/users/:phone', async (req, res) => {
@@ -126,7 +156,7 @@ app.get('/api/users/:phone', async (req, res) => {
     if (!doc.exists) return res.status(404).json({ error: 'User not found' });
     const { password: _p, ...safeUser } = doc.data();
     res.json(safeUser);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.patch('/api/users/:phone/membership', async (req, res) => {
@@ -135,7 +165,7 @@ app.patch('/api/users/:phone/membership', async (req, res) => {
     if (!['silver','gold','platinum'].includes(tier?.toLowerCase())) return res.status(400).json({ error: 'Tier must be silver, gold, or platinum' });
     await db.collection('users').doc(req.params.phone).update({ membershipTier: tier.toLowerCase() });
     res.json({ message: `Membership updated to ${tier}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.post('/api/users/membership/purchase', authMiddleware, async (req, res) => {
@@ -151,7 +181,7 @@ app.post('/api/users/membership/purchase', authMiddleware, async (req, res) => {
       axios.post(process.env.WEBHOOK_URL, { event: 'membership_purchased', orderId: order.orderId, customer: { name: req.user.name, phone: req.user.phone, customerId: req.user.customerId }, membership: { tier: tier.toLowerCase(), price }, timestamp: new Date().toISOString() }).catch(() => {});
     }
     res.json({ message: `${tier} membership activated!`, orderId: order.orderId, amountPaid: price });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 // ═══════════════════════════════════════════════
@@ -164,7 +194,10 @@ app.get('/api/inventory', async (req, res) => {
     if (req.query.category) query = query.where('category', '==', req.query.category);
     const snap = await query.get();
     res.json({ count: snap.size, products: snap.docs.map(d => d.data()) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    console.error('Inventory error:', err.code, err.message);
+    res.status(500).json({ error: err.message, code: err.code, details: err.details });
+  }
 });
 
 app.get('/api/inventory/search', async (req, res) => {
@@ -180,7 +213,7 @@ app.get('/api/inventory/search', async (req, res) => {
     const snap = await db.collection('inventory').get();
     const results = snap.docs.map(d => d.data()).filter(p => p.name.toLowerCase().includes(term) || p.category.toLowerCase().includes(term));
     res.json({ count: results.length, products: results });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.get('/api/inventory/:itemId', async (req, res) => {
@@ -188,7 +221,7 @@ app.get('/api/inventory/:itemId', async (req, res) => {
     const snap = await db.collection('inventory').where('itemId', '==', req.params.itemId).get();
     if (snap.empty) return res.status(404).json({ error: 'Product not found' });
     res.json(snap.docs[0].data());
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 // ═══════════════════════════════════════════════
@@ -210,7 +243,7 @@ app.get('/api/cart/:phone', async (req, res) => {
       return { ...item, pricing };
     });
     res.json({ phone: req.params.phone, membershipTier: user.membershipTier, discountPercent: discountRate * 100, items: enrichedItems, subtotal: Math.round(subtotal * 100) / 100, itemCount: items.reduce((s, i) => s + i.quantity, 0) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.post('/api/cart/:phone/add', async (req, res) => {
@@ -227,7 +260,7 @@ app.post('/api/cart/:phone/add', async (req, res) => {
     if (idx > -1) { items[idx].quantity += quantity; } else { items.push({ itemId: product.itemId, name: product.name, price: product.price, image: product.image, quantity }); }
     await cartRef.set({ phone: req.params.phone, items, updatedAt: new Date().toISOString() });
     res.json({ message: `${product.name} added to cart`, itemCount: items.reduce((s, i) => s + i.quantity, 0) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.delete('/api/cart/:phone/remove/:itemId', async (req, res) => {
@@ -241,7 +274,7 @@ app.delete('/api/cart/:phone/remove/:itemId', async (req, res) => {
     if (items.length === before) return res.status(404).json({ error: 'Item not in cart' });
     await cartRef.update({ items });
     res.json({ message: 'Item removed from cart' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.patch('/api/cart/:phone/update', async (req, res) => {
@@ -257,14 +290,14 @@ app.patch('/api/cart/:phone/update', async (req, res) => {
     if (quantity <= 0) { items.splice(idx, 1); } else { items[idx].quantity = quantity; }
     await cartRef.update({ items });
     res.json({ message: 'Cart updated' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.delete('/api/cart/:phone/clear', async (req, res) => {
   try {
     await db.collection('carts').doc(req.params.phone).set({ phone: req.params.phone, items: [] });
     res.json({ message: 'Cart cleared' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 // ═══════════════════════════════════════════════
@@ -297,35 +330,14 @@ app.post('/api/orders/checkout', authMiddleware, async (req, res) => {
       axios.post(process.env.WEBHOOK_URL, { event: 'order_placed', orderId, timestamp: new Date().toISOString(), customer: { customerId: req.user.customerId, name: req.user.name, phone, email: req.user.email, membershipTier: req.user.membershipTier }, order: { items: orderedItems, subtotal: Math.round(subtotal * 100) / 100, discountApplied: discountRate * 100 + '%', tax, totalAmountPaid: total, paymentMethod }, delivery: { estimatedDelivery: delivery, address: address || 'Not provided' } }, { timeout: 5000 }).catch(err => console.error('Webhook failed:', err.message));
     }
     res.json({ message: 'Order placed successfully!', orderId, summary: { itemCount: orderedItems.reduce((s, i) => s + i.quantity, 0), subtotal: Math.round(subtotal * 100) / 100, discountApplied: `${discountRate * 100}% (${req.user.membershipTier} membership)`, tax, totalPaid: total, estimatedDelivery: delivery, paymentStatus: 'paid' } });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.get('/api/orders/:phone', async (req, res) => {
   try {
     const snap = await db.collection('orders').where('phone', '==', req.params.phone).orderBy('createdAt', 'desc').get();
     res.json({ count: snap.size, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ─── Debug endpoint ────────────────────────────────────────────
-app.get('/api/debug', (req, res) => {
-  const raw = process.env.FIREBASE_PRIVATE_KEY || '';
-  let cleaned = raw;
-  if (cleaned.charCodeAt(0) === 34) cleaned = cleaned.substring(1);
-  if (cleaned.charCodeAt(cleaned.length - 1) === 34) cleaned = cleaned.substring(0, cleaned.length - 1);
-  cleaned = cleaned.split('\\n').join('\n');
-  res.json({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    rawKeyLength: raw.length,
-    rawKeyStart: raw.substring(0, 40),
-    cleanedKeyStart: cleaned.substring(0, 40),
-    hasNewlinesAfterClean: cleaned.includes('\n'),
-    firebaseApps: admin.apps.length,
-  });
-});
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Himalaya Wellness API', timestamp: new Date().toISOString() });
+  } catch (err) { res.status(500).json({ error: err.message, code: err.code }); }
 });
 
 app.get('*', (req, res) => {
