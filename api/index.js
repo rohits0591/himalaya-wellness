@@ -5,16 +5,40 @@ const admin = require('firebase-admin');
 const axios = require('axios');
 const path = require('path');
 
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    privateKeyId: process.env.FIREBASE_PRIVATE_KEY_ID,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n').replace(/^"|"$/g, ''),
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    clientId: process.env.FIREBASE_CLIENT_ID,
-    clientX509CertUrl: process.env.FIREBASE_CLIENT_CERT_URL,
-  }),
-});
+// ─── Firebase Init (handles all Vercel key formats) ────────────
+if (!admin.apps.length) {
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY || '';
+  
+  // Strip surrounding quotes (Vercel sometimes wraps in quotes)
+  privateKey = privateKey.replace(/^["'](.*)["']$/s, '$1');
+  
+  // Convert \n literals to real newlines
+  privateKey = privateKey.replace(/\\n/g, '\n');
+  
+  // If key has no newlines at all, it's broken — log warning
+  if (!privateKey.includes('\n')) {
+    console.error('WARNING: Private key has no newlines — may be malformed');
+  }
+
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        type: 'service_account',
+        project_id: process.env.FIREBASE_PROJECT_ID,
+        private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+        private_key: privateKey,
+        client_email: process.env.FIREBASE_CLIENT_EMAIL,
+        client_id: process.env.FIREBASE_CLIENT_ID,
+        auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+        token_uri: 'https://oauth2.googleapis.com/token',
+        client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL,
+      }),
+    });
+    console.log('Firebase initialized successfully');
+  } catch (err) {
+    console.error('Firebase init error:', err.message);
+  }
+}
 
 const db = admin.firestore();
 const app = express();
@@ -22,36 +46,35 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
+// ─── Helpers ───────────────────────────────────────────────────
 const DISCOUNT = { platinum: 0.15, gold: 0.10, silver: 0.05, none: 0 };
-
 function getDiscount(tier) { return DISCOUNT[tier?.toLowerCase()] || 0; }
-
 function applyDiscount(price, tier) {
-  const discount = getDiscount(tier);
-  return {
-    original: price,
-    discountPercent: discount * 100,
-    discounted: Math.round(price * (1 - discount) * 100) / 100,
-  };
+  const d = getDiscount(tier);
+  return { original: price, discountPercent: d * 100, discounted: Math.round(price * (1 - d) * 100) / 100 };
 }
-
 function estimateDelivery() {
-  const days = Math.floor(Math.random() * 3) + 3;
   const date = new Date();
-  date.setDate(date.getDate() + days);
+  date.setDate(date.getDate() + Math.floor(Math.random() * 3) + 3);
   return date.toDateString();
 }
 
+// ─── Auth Middleware ────────────────────────────────────────────
 async function authMiddleware(req, res, next) {
   const { phone, password } = req.headers;
   if (!phone || !password) return res.status(401).json({ error: 'Phone and password required in headers' });
-  const snap = await db.collection('users').where('phone', '==', phone).where('password', '==', password).get();
-  if (snap.empty) return res.status(401).json({ error: 'Invalid credentials' });
-  req.user = snap.docs[0].data();
-  next();
+  try {
+    const snap = await db.collection('users').where('phone', '==', phone).where('password', '==', password).get();
+    if (snap.empty) return res.status(401).json({ error: 'Invalid credentials' });
+    req.user = snap.docs[0].data();
+    next();
+  } catch (err) { res.status(500).json({ error: err.message }); }
 }
 
+// ═══════════════════════════════════════════════
 // USER ENDPOINTS
+// ═══════════════════════════════════════════════
+
 app.post('/api/users/register', async (req, res) => {
   try {
     const { name, phone, email, password } = req.body;
@@ -113,14 +136,17 @@ app.post('/api/users/membership/purchase', authMiddleware, async (req, res) => {
     await db.collection('users').doc(req.user.phone).update({ membershipTier: tier.toLowerCase() });
     const order = { orderId: `MEM-${Date.now()}`, customerId: req.user.customerId, phone: req.user.phone, name: req.user.name, type: 'membership', tier: tier.toLowerCase(), amount: price, status: 'confirmed', estimatedDelivery: 'Instant activation', createdAt: admin.firestore.FieldValue.serverTimestamp() };
     await db.collection('orders').add(order);
-    if (process.env.WEBHOOK_URL) {
+    if (process.env.WEBHOOK_URL && !process.env.WEBHOOK_URL.includes('your-webhook')) {
       axios.post(process.env.WEBHOOK_URL, { event: 'membership_purchased', orderId: order.orderId, customer: { name: req.user.name, phone: req.user.phone, customerId: req.user.customerId }, membership: { tier: tier.toLowerCase(), price }, timestamp: new Date().toISOString() }).catch(() => {});
     }
     res.json({ message: `${tier} membership activated!`, orderId: order.orderId, amountPaid: price });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════
 // INVENTORY ENDPOINTS
+// ═══════════════════════════════════════════════
+
 app.get('/api/inventory', async (req, res) => {
   try {
     let query = db.collection('inventory');
@@ -133,7 +159,7 @@ app.get('/api/inventory', async (req, res) => {
 app.get('/api/inventory/search', async (req, res) => {
   try {
     const { q, itemId } = req.query;
-    if (!q && !itemId) return res.status(400).json({ error: 'Provide q (name) or itemId' });
+    if (!q && !itemId) return res.status(400).json({ error: 'Provide q or itemId' });
     if (itemId) {
       const snap = await db.collection('inventory').where('itemId', '==', itemId).get();
       if (snap.empty) return res.status(404).json({ error: 'Product not found' });
@@ -154,7 +180,10 @@ app.get('/api/inventory/:itemId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════
 // CART ENDPOINTS
+// ═══════════════════════════════════════════════
+
 app.get('/api/cart/:phone', async (req, res) => {
   try {
     const userDoc = await db.collection('users').doc(req.params.phone).get();
@@ -180,7 +209,6 @@ app.post('/api/cart/:phone/add', async (req, res) => {
     const productSnap = await db.collection('inventory').where('itemId', '==', itemId).get();
     if (productSnap.empty) return res.status(404).json({ error: 'Product not found' });
     const product = productSnap.docs[0].data();
-    if (product.stock < quantity) return res.status(400).json({ error: `Only ${product.stock} units in stock` });
     const cartRef = db.collection('carts').doc(req.params.phone);
     const cartDoc = await cartRef.get();
     let items = cartDoc.exists ? (cartDoc.data().items || []) : [];
@@ -228,7 +256,10 @@ app.delete('/api/cart/:phone/clear', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════
 // CHECKOUT
+// ═══════════════════════════════════════════════
+
 app.post('/api/orders/checkout', authMiddleware, async (req, res) => {
   try {
     const { address, paymentMethod = 'card' } = req.body;
@@ -251,8 +282,8 @@ app.post('/api/orders/checkout', authMiddleware, async (req, res) => {
     const order = { orderId, customerId: req.user.customerId, name: req.user.name, phone, email: req.user.email, membershipTier: req.user.membershipTier, discountPercent: discountRate * 100, items: orderedItems, subtotal: Math.round(subtotal * 100) / 100, tax, total, address: address || 'Not provided', paymentMethod, paymentStatus: 'paid', status: 'confirmed', estimatedDelivery: delivery, createdAt: admin.firestore.FieldValue.serverTimestamp() };
     await db.collection('orders').add(order);
     await db.collection('carts').doc(phone).set({ phone, items: [] });
-    if (process.env.WEBHOOK_URL) {
-      axios.post(process.env.WEBHOOK_URL, { event: 'order_placed', orderId, timestamp: new Date().toISOString(), customer: { customerId: req.user.customerId, name: req.user.name, phone, email: req.user.email, membershipTier: req.user.membershipTier }, order: { items: orderedItems.map(i => ({ name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, discountedPrice: i.discountedPrice, lineTotal: i.lineTotal })), subtotal: Math.round(subtotal * 100) / 100, discountApplied: discountRate * 100 + '%', tax, totalAmountPaid: total, paymentMethod }, delivery: { estimatedDelivery: delivery, address: address || 'Not provided' } }, { headers: { 'Content-Type': 'application/json' }, timeout: 5000 }).catch(err => console.error('Webhook failed:', err.message));
+    if (process.env.WEBHOOK_URL && !process.env.WEBHOOK_URL.includes('your-webhook')) {
+      axios.post(process.env.WEBHOOK_URL, { event: 'order_placed', orderId, timestamp: new Date().toISOString(), customer: { customerId: req.user.customerId, name: req.user.name, phone, email: req.user.email, membershipTier: req.user.membershipTier }, order: { items: orderedItems, subtotal: Math.round(subtotal * 100) / 100, discountApplied: discountRate * 100 + '%', tax, totalAmountPaid: total, paymentMethod }, delivery: { estimatedDelivery: delivery, address: address || 'Not provided' } }, { timeout: 5000 }).catch(err => console.error('Webhook failed:', err.message));
     }
     res.json({ message: 'Order placed successfully!', orderId, summary: { itemCount: orderedItems.reduce((s, i) => s + i.quantity, 0), subtotal: Math.round(subtotal * 100) / 100, discountApplied: `${discountRate * 100}% (${req.user.membershipTier} membership)`, tax, totalPaid: total, estimatedDelivery: delivery, paymentStatus: 'paid' } });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -263,6 +294,20 @@ app.get('/api/orders/:phone', async (req, res) => {
     const snap = await db.collection('orders').where('phone', '==', req.params.phone).orderBy('createdAt', 'desc').get();
     res.json({ count: snap.size, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Debug endpoint to check env vars ─────────────────────────
+app.get('/api/debug', (req, res) => {
+  const key = process.env.FIREBASE_PRIVATE_KEY || '';
+  res.json({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    keyLength: key.length,
+    keyStart: key.substring(0, 30),
+    hasNewlines: key.includes('\n'),
+    hasLiteralBackslashN: key.includes('\\n'),
+    firebaseApps: admin.apps.length,
+  });
 });
 
 app.get('/api/health', (req, res) => {
