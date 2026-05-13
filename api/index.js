@@ -9,15 +9,17 @@ const path = require('path');
 if (!admin.apps.length) {
   let privateKey = process.env.FIREBASE_PRIVATE_KEY || '';
   
-  // Strip surrounding quotes (Vercel sometimes wraps in quotes)
-  privateKey = privateKey.replace(/^["'](.*)["']$/s, '$1');
+  // Step 1: Remove surrounding double quotes (Vercel adds these)
+  privateKey = privateKey.replace(/^\"/, '').replace(/\"$/, '');
   
-  // Convert \n literals to real newlines
+  // Step 2: Convert literal \n text to real newlines
   privateKey = privateKey.replace(/\\n/g, '\n');
   
-  // If key has no newlines at all, it's broken — log warning
+  // Step 3: Verify fix worked
   if (!privateKey.includes('\n')) {
-    console.error('WARNING: Private key has no newlines — may be malformed');
+    console.error('WARNING: Private key still has no newlines after cleanup');
+  } else {
+    console.log('Private key processed successfully, length:', privateKey.length);
   }
 
   try {
